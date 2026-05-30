@@ -1,0 +1,60 @@
+# Enterprise Infrastructure Monitoring Lab
+# Observium server + Ubuntu SNMP client on a shared Docker network
+
+services:
+  db:
+    image: mariadb:11.7
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-observium}
+      MYSQL_USER: observium
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-observium}
+      MYSQL_DATABASE: observium
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - monitoring
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  observium:
+    image: mbixtech/observium:24.12
+    environment:
+      OBSERVIUM_ADMIN_USER: ${OBSERVIUM_ADMIN_USER:-admin}
+      OBSERVIUM_ADMIN_PASS: ${OBSERVIUM_ADMIN_PASS:-observium}
+      OBSERVIUM_DB_HOST: db
+      OBSERVIUM_DB_NAME: observium
+      OBSERVIUM_DB_USER: observium
+      OBSERVIUM_DB_PASS: ${MYSQL_PASSWORD:-observium}
+      OBSERVIUM_BASE_URL: ${OBSERVIUM_BASE_URL:-http://localhost:8888}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/logs:/opt/observium/logs
+      - ./data/rrd:/opt/observium/rrd
+    ports:
+      - "${OBSERVIUM_PORT:-8888}:80"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  ubuntu-client:
+    build:
+      context: ./client
+    hostname: ubuntu-client
+    environment:
+      SNMP_COMMUNITY: ${SNMP_COMMUNITY:-public}
+      TZ: ${TZ:-UTC}
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+networks:
+  monitoring:
+    driver: bridge
